@@ -1,0 +1,188 @@
+//基础玩家角色控制代码
+//把玩家输入转换成移动/跳跃/攻击/动画
+
+// 目前是大体框架！还有细节和改进和完善在这几天我们来一步一步完善！角色穿梭我也在思考设计
+using UnityEngine;
+
+// 强制这个脚本挂在物体上时，必须带 Rigidbody2D 和 Animator
+[RequireComponent(typeof(Rigidbody2D))] //需要Rigibody2D，考虑到我们现在转移到2D场景
+[RequireComponent(typeof(Animator))]//以及Animator
+public class PlayerController2D : MonoBehaviour
+{
+    // 角色的移动参数
+    // 可以进行调整
+    
+
+    [Header("Movement Settings")]
+    public float walkSpeed = 5f;   // 角色的走路速度
+    public float runSpeed = 8f;    // 角色的冲刺速度
+    public float jumpForce = 12f;  // 角色的跳跃
+
+    
+    //Ground check 地面检测
+    //这个来检测我们的角色是不是在地面上接触
+    
+
+    [Header("Ground Check")]
+    public Transform groundCheck;      // 检测点（角色底部）
+    public float groundCheckRadius = 0.2f; // 检测半径
+    public LayerMask groundLayer;      // 哪些是地面
+
+    // 角色的攻击系统
+    // 考虑到我们的角色攻击是头顶吐泡泡形式，所以这个可以在后面几天我们在unity里面调整改动
+    
+    [Header("Attack Settings")]
+    public float attackCooldown = 0.5f; // 攻击冷却时间，目前个人调整觉得可以阻止小部分出现攻击差错的情况，攻击间隔在0.5
+
+    // 内部判断状态
+
+    private Rigidbody2D rb;     // 物理组件（控制移动）
+    private Animator animator;  // 动画组件
+
+    private float moveInput;    // 左右输入值
+    private bool isGrounded;    // 是否在地面
+    private bool isRunning;     // 是否在跑
+    private bool isFacingRight = true; // 朝向（比如我们的角色是朝左还是朝右）
+    private bool canAttack = true;     // 在条件允许下，是否可以攻击
+
+    //初始化-生命周期函数
+    
+    void Start() //游戏开始角色刚出来时就执行一次
+    {
+        rb = GetComponent<Rigidbody2D>(); // 获取物理身体，也就相当于怎么说呢，一个判断：“我的身体在不在”
+        animator = GetComponent<Animator>(); // 获取动画器---动画系统
+    }
+
+    // 每一帧每一步都会执行
+    // 玩家按键按了什么
+    // 检查每一帧按了什么
+
+    void Update()
+    {
+        HandleInput();      // 处理键盘输入
+        HandleAnimation();  // 控制动画
+        Flip();            // 翻转角色方向
+    }
+
+    // 固定时间执行
+    // 固定时间更新
+
+    void FixedUpdate()
+    {
+        Move();        // 移动角色
+        CheckGround(); // 检查是否在地面
+    }
+
+    // 输入系统，这个我们可以这几天再完善，目前结束了基础的，二段跳的设置我会这几天想好
+
+    void HandleInput()
+    {
+        // 左右移动输入（A/D 或 ← →）
+        moveInput = Input.GetAxisRaw("Horizontal");
+
+        // 是否按住 Shift（跑步）
+        isRunning = Input.GetKey(KeyCode.LeftShift);
+
+        // 跳跃（按空格 + 在地上）
+        if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
+        {
+            Jump();
+        }
+
+        // 攻击（鼠标左键）
+        // 这个我们得回看文档，我目前先设置了鼠标攻击，后面来改成按键
+        if (Input.GetMouseButtonDown(0) && canAttack)
+        {
+            StartCoroutine(Attack());
+        }
+    }
+
+    // 玩家角色移动逻辑
+
+    void Move()
+    {
+        float speed = isRunning ? runSpeed : walkSpeed;
+
+        // 改变角色速度（左右移动）
+        rb.velocity = new Vector2(moveInput * speed, rb.velocity.y);
+    }
+
+    // 角色和跳跃
+    
+    void Jump()
+    {
+        // 直接给Y方向一个速度
+        rb.velocity = new Vector2(rb.velocity.x, jumpForce);
+
+        // 播放跳跃动画
+        animator.SetTrigger("Jump");
+    }
+
+   
+    // 攻击（带冷却）
+    
+    System.Collections.IEnumerator Attack()
+    {
+        canAttack = false; // 禁止连续攻击，不过后期也可以进行改
+
+        animator.SetTrigger("Attack"); // 播放攻击动画
+
+        // 等待冷却时间
+        yield return new WaitForSeconds(attackCooldown);
+
+        canAttack = true; // 恢复攻击，让角色再次吐球
+    }
+
+    //地面检测
+  
+    void CheckGround()
+    {
+        isGrounded = Physics2D.OverlapCircle(
+            groundCheck.position,   // 检测点
+            groundCheckRadius,      // 半径
+            groundLayer             // 只检测地面层
+        );
+
+        // 把结果传给动画系统
+        animator.SetBool("isGrounded", isGrounded);
+    }
+
+    // 角色动画控制
+    void HandleAnimation()
+    {
+        animator.SetFloat("Speed", Mathf.Abs(moveInput)); // 移动速度
+        animator.SetBool("isRunning", isRunning);         // 是否跑
+        animator.SetFloat("VerticalVelocity", rb.velocity.y); // 上下速度
+    }
+
+    
+    // 让角色根据移动方向，自动朝左或朝右看
+   
+    void Flip() //角色判断要不要转
+    {
+        if (moveInput > 0 && !isFacingRight) //（按D，往右走），（否则：判断不对，现在朝左）
+            FlipCharacter();
+
+        else if (moveInput < 0 && isFacingRight) //（按A，往左走），（否则：判断不对，现在朝右）
+            FlipCharacter();
+    }
+
+    void FlipCharacter() //真正开始执行角色转向
+    {
+        isFacingRight = !isFacingRight; //记录现在方向变了
+
+        Vector3 scale = transform.localScale; //获取角色尺寸
+        scale.x *= -1; // X轴翻转，其实就是左右水平的朝向变化
+        transform.localScale = scale;
+    }
+
+    // 编辑器可视化调试工具，检测看不见的区域范围
+    
+    void OnDrawGizmosSelected() //在unity选物体才会显示
+    {
+        if (groundCheck == null) return; //报错，防止出错，如果没设置好会报错，unity变红
+
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(groundCheck.position, groundCheckRadius);
+    }
+}
